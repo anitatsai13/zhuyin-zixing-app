@@ -151,7 +151,18 @@ function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor
 /* 誘答挑易混淆：注音相似度(同音>同音異調>共用聲母/韻母)、成語共用字 */
 function toneless(s){return (s||'').replace(/[ˊˇˋ˙]/g,'');}
 function simYin(a,b){if(!a||!b)return 0;if(a===b)return 6;var ta=toneless(a),tb=toneless(b);if(ta===tb)return 5;var i=0;while(i<ta.length&&i<tb.length&&ta[i]===tb[i])i++;var j=0;while(j+i<ta.length&&j+i<tb.length&&ta[ta.length-1-j]===tb[tb.length-1-j])j++;return i+j+(ta[0]===tb[0]?0.5:0);}
-function idiomDist(w,all,n){var wc=new Set([...String(w)]),wl=[...w].length;var cand=[...new Set(all)].filter(x=>x&&x!==w);var scored=cand.map(function(x){var sh=0;for(const c of new Set([...x]))if(wc.has(c))sh++;return {x:x,s:sh*2+([...x].length===wl?1:0)};}).sort((a,b)=>b.s-a.s);var top=scored.slice(0,Math.max(n+4,8)).map(o=>o.x);return shuffle(top).slice(0,n);}
+var DEF_LEAD=/^(比喻為|比喻|形容為|形容|意謂|意指|指稱|表示|謂|喻|指)/;
+var DEF_STOP=new Set([...'的了地得之而也是與和或於在為以及其此該對將把被使即則乃且所又不無沒很非常十分人事物']);
+function defTerms(def){var s=String(def||'').replace(DEF_LEAD,'').replace(/[^一-鿿]/g,'');var arr=[...s];var chars=new Set(arr.filter(c=>!DEF_STOP.has(c)));var grams=new Set();for(var i=0;i<arr.length-1;i++)grams.add(arr[i]+arr[i+1]);return {chars:chars,grams:grams};}
+function defSim(A,B){var g=0;A.grams.forEach(x=>{if(B.grams.has(x))g++;});var c=0;A.chars.forEach(x=>{if(B.chars.has(x))c++;});return g*3+c;}
+/* 成語擂臺是「看釋義選成語」→ 誘答優先挑「釋義相近」的成語（近義成語），共用字/字數只作次要加權 */
+function idiomDist(target,pool,n){
+  var A=defTerms(target.def),wl=[...target.w].length,wc=new Set([...target.w]);
+  var seen={},uniq=[];pool.forEach(function(x){if(x&&x.w!==target.w&&x.def&&!seen[x.w]){seen[x.w]=1;uniq.push(x);}});
+  var scored=uniq.map(function(x){var d=defSim(A,defTerms(x.def));var sh=0;for(const c of new Set([...x.w]))if(wc.has(c))sh++;return {w:x.w,s:d*4+sh+([...x.w].length===wl?0.5:0)};}).sort(function(a,b){return b.s-a.s;});
+  var top=scored.slice(0,Math.max(n+4,8)).map(o=>o.w);
+  return shuffle(top).slice(0,n);
+}
 function hanLen(w){return (w.match(/[一-鿿]/g)||[]).length}
 function fit(w){const n=hanLen(w);if(n<=1)return 72;if(n<=2)return 60;if(n<=3)return 50;if(n<=5)return 40;return 30;}
 function fitFlip(w){const n=hanLen(w);if(n<=2)return 56;if(n<=3)return 48;if(n<=5)return 40;return 32;}
@@ -356,7 +367,7 @@ function renderThemeQuiz(el,ds){
   function next(){
     if(pos>=order.length)return result();
     const it=pool[order[pos]];
-    const opts=shuffle([it.w,...idiomDist(it.w,allW,3)]);
+    const opts=shuffle([it.w,...idiomDist(it,pool,3)]);
     let s=`<div class="q-prompt"><div class="q-type mean">成語 · 看釋義選成語</div><div class="q-small" style="font-size:16px;color:var(--ink)">${it.def}</div></div><div class="options">`;
     opts.forEach((o,i)=>s+=`<button class="opt" data-v="${o}"><span class="k">${'ABCD'[i]}</span><span style="font-family:'DFKai-SB','Kaiti TC',serif;font-size:20px">${o}</span></button>`);
     s+=`</div><div class="feedback" id="tqfb"></div>`;q('#tqArea').innerHTML=s;
