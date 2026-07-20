@@ -148,6 +148,10 @@ const DATASETS = [{"id": "fill", "name": "字音字形題庫", "sub": "62 課 ·
 const TONE_R={'ˊ':1,'ˇ':1,'ˋ':1,'ˉ':1};
 function vzhuyin(syl){syl=(syl||'').trim();let base=syl,tone='',pos='';if(syl[0]==='˙'){tone='˙';pos='t';base=syl.slice(1);}else{const last=syl[syl.length-1];if(TONE_R[last]){tone=last;pos='r';base=syl.slice(0,-1);}}let h='<span class="zn">';for(const ch of base)h+=`<span class="zsym">${ch}</span>`;if(tone)h+=`<span class="zt zt-${pos}">${tone}</span>`;return h+'</span>';}
 function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+/* 誘答挑易混淆：注音相似度(同音>同音異調>共用聲母/韻母)、成語共用字 */
+function toneless(s){return (s||'').replace(/[ˊˇˋ˙]/g,'');}
+function simYin(a,b){if(!a||!b)return 0;if(a===b)return 6;var ta=toneless(a),tb=toneless(b);if(ta===tb)return 5;var i=0;while(i<ta.length&&i<tb.length&&ta[i]===tb[i])i++;var j=0;while(j+i<ta.length&&j+i<tb.length&&ta[ta.length-1-j]===tb[tb.length-1-j])j++;return i+j+(ta[0]===tb[0]?0.5:0);}
+function idiomDist(w,all,n){var wc=new Set([...String(w)]),wl=[...w].length;var cand=[...new Set(all)].filter(x=>x&&x!==w);var scored=cand.map(function(x){var sh=0;for(const c of new Set([...x]))if(wc.has(c))sh++;return {x:x,s:sh*2+([...x].length===wl?1:0)};}).sort((a,b)=>b.s-a.s);var top=scored.slice(0,Math.max(n+4,8)).map(o=>o.x);return shuffle(top).slice(0,n);}
 function hanLen(w){return (w.match(/[一-鿿]/g)||[]).length}
 function fit(w){const n=hanLen(w);if(n<=1)return 72;if(n<=2)return 60;if(n<=3)return 50;if(n<=5)return 40;return 30;}
 function fitFlip(w){const n=hanLen(w);if(n<=2)return 56;if(n<=3)return 48;if(n<=5)return 40;return 32;}
@@ -352,7 +356,7 @@ function renderThemeQuiz(el,ds){
   function next(){
     if(pos>=order.length)return result();
     const it=pool[order[pos]];
-    const opts=shuffle([it.w,...shuffle(allW.filter(w=>w!==it.w)).slice(0,3)]);
+    const opts=shuffle([it.w,...idiomDist(it.w,allW,3)]);
     let s=`<div class="q-prompt"><div class="q-type mean">成語 · 看釋義選成語</div><div class="q-small" style="font-size:16px;color:var(--ink)">${it.def}</div></div><div class="options">`;
     opts.forEach((o,i)=>s+=`<button class="opt" data-v="${o}"><span class="k">${'ABCD'[i]}</span><span style="font-family:'DFKai-SB','Kaiti TC',serif;font-size:20px">${o}</span></button>`);
     s+=`</div><div class="feedback" id="tqfb"></div>`;q('#tqArea').innerHTML=s;
@@ -398,8 +402,8 @@ function renderFillQuiz(el,ds){
   function buildPool(){const sel=twoFilter(ds.lessons,vf,lf);pool=[];sel.forEach(L=>L.items.forEach(it=>pool.push(it)));}
   function start(){round=newRound();buildPool();order=shuffle(pool.map((_,i)=>i));if(roundLen>0)order=order.slice(0,roundLen);total=order.length;pos=0;done=0;right=0;upd();next();}
   function upd(){q('#fqDone').textContent=`${done}/${total}`;q('#fqRight').textContent=right;q('#fqRate').textContent=(done?Math.round(right/done*100):0)+'%';}
-  function formOpts(it){const cand=new Set();if(LLALL[it.char])shuffle(LLALL[it.char]).forEach(c=>{if(cand.size<3&&c!==it.char)cand.add(c);});if(cand.size<3)shuffle(pool.filter(x=>x.ask==='form'&&x.char!==it.char)).forEach(x=>{if(cand.size<3&&x.char!==it.char)cand.add(x.char);});return shuffle([it.char,...cand]);}
-  function soundOpts(it){const cand=new Set();shuffle(pool.filter(x=>x.yin!==it.yin)).forEach(x=>{if(cand.size<3)cand.add(x.yin);});return shuffle([it.yin,...cand]);}
+  function formOpts(it){const cand=new Set();if(LLALL[it.char])shuffle(LLALL[it.char]).forEach(c=>{if(cand.size<3&&c!==it.char)cand.add(c);});if(cand.size<3){const byYin=pool.filter(x=>x.char!==it.char).map(x=>({c:x.char,s:simYin(it.yin,x.yin)})).filter(o=>o.s>0).sort((a,b)=>b.s-a.s);for(const o of byYin){if(cand.size<3&&o.c!==it.char)cand.add(o.c);}}if(cand.size<3)shuffle(pool.filter(x=>x.ask==='form'&&x.char!==it.char)).forEach(x=>{if(cand.size<3&&x.char!==it.char)cand.add(x.char);});return shuffle([it.char,...cand]);}
+  function soundOpts(it){const yins=[...new Set(pool.filter(x=>x.yin&&x.yin!==it.yin).map(x=>x.yin))];const scored=yins.map(y=>({y:y,s:simYin(it.yin,y)})).sort((a,b)=>b.s-a.s);const cand=shuffle(scored.slice(0,Math.max(6,3)).map(o=>o.y)).slice(0,3);if(cand.length<3)shuffle(yins).forEach(y=>{if(cand.length<3&&cand.indexOf(y)<0)cand.push(y);});return shuffle([it.yin,...cand]);}
   function next(){
     if(pos>=order.length)return result();
     const it=pool[order[pos]];let s,correct;
