@@ -1,0 +1,19 @@
+{
+  "name": "字音字形學習",
+  "short_name": "字音字形",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f1e7",
+  "theme_color": "#9a3b2e",
+  "lang": "zh-Hant",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

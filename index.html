@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>字音字形學習 App</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#9a3b2e">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="字音字形">
+<script>if('serviceWorker' in navigator){addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
 <style>
   :root{--ink:#2b2622;--ink-soft:#6b6258;--paper:#f6f1e7;--paper-2:#fffdf8;--accent:#9a3b2e;--accent-soft:#c97c52;--gold:#b8893b;--green:#4a7c4e;--red:#b5443a;--line:#e3d9c6;--blue:#3f6f8f;--shadow:0 6px 22px rgba(60,45,30,.12)}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
