@@ -143,6 +143,8 @@
   .dg-t{font-family:"DFKai-SB","Kaiti TC",serif;font-size:26px;font-weight:700;color:var(--ink);line-height:1.25}
   .dg-story{background:#f7efe3;border-radius:12px;padding:12px 14px;font-size:15.5px;line-height:1.95;text-indent:2em;color:var(--ink)}
   .dg-en{font-size:13px;color:var(--ink-soft);font-weight:700}
+  .dg-say{margin-left:auto;flex-shrink:0;border:0;background:#efe6d2;color:var(--accent);font-weight:800;font-size:13px;padding:7px 12px;border-radius:99px;cursor:pointer;font-family:inherit}
+  .dg-say.on{background:var(--accent);color:#fff}
   .dg-badge{background:#c0507a;color:#fff;font-size:12px;font-weight:800;padding:2px 7px;border-radius:5px}
   .dg-sn{font-size:12.5px;color:var(--ink-soft)}
   .dg-sec{font-size:13px;color:var(--green);font-weight:700;margin-bottom:6px;text-align:left}
@@ -258,7 +260,7 @@ function renderTabs(){
   el.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{TAB=b.dataset.t;renderTabs();renderStage();});
 }
 function renderStage(){
-  const el=document.getElementById('stage');
+  const el=document.getElementById('stage');dgStop();
   if(CUR.kind==='wrong')return renderWrong(el);
   if(CUR.kind==='zixing'){
     if(TAB==='learn')return renderLearn(el,CUR);
@@ -486,7 +488,7 @@ function dgHi(s,w){const t=dgTxt(s);return w?t.split(dgEsc(w)).join('<span class
 function dgParen(s){s=String(s).trim();return /^（/.test(s)?s:'（'+s+'）';}
 const DG_TAGS={'解釋':1,'例句':1,'延伸':1,'相似':1,'相反':1};
 function dgCard(it){
-  let s='<div class="dg"><div class="dg-h"><span class="dg-no">'+dgEsc(it.no)+'</span><span class="dg-t">'+dgTxt(it.title)+'</span>'+(it.title_en?'<span class="dg-en">'+dgEsc(it.title_en)+'</span>':'')+(it.badge?'<span class="dg-badge">'+dgEsc(it.badge)+'</span>':'')+'</div>';
+  let s='<div class="dg"><div class="dg-h"><span class="dg-no">'+dgEsc(it.no)+'</span><span class="dg-t">'+dgTxt(it.title)+'</span>'+(it.title_en?'<span class="dg-en">'+dgEsc(it.title_en)+'</span>':'')+(it.badge?'<span class="dg-badge">'+dgEsc(it.badge)+'</span>':'')+(DG_TTS?'<button class="dg-say" type="button">🔊 朗讀</button>':'')+'</div>';
   s+='<div class="dg-story">'+String(it.story).split('\n').map(p=>'<div>'+dgTxt(p)+'</div>').join('')+'</div>';
   if(it.note)s+='<div class="dg-note">'+dgTxt(dgParen(it.note))+'</div>';
   if(it.def)s+='<div class="dg-row"><span class="dg-lb 解釋">解釋</span><div>'+dgTxt(it.def)+(it.def_note?' <span class="dg-sn">'+dgTxt(dgParen(it.def_note))+'</span>':'')+'</div></div>';
@@ -496,6 +498,22 @@ function dgCard(it){
     it.rel.filter(r=>r.tag===tg).map(r=>'<div><span class="dg-w">'+dgTxt(r.w)+'</span>'+(r.d?'：'+dgTxt(r.d):'')+(r.note?' <span class="dg-sn">'+dgTxt(dgParen(r.note))+'</span>':'')+'</div>').join('')+'</div></div>';});
   return s+'</div>';
 }
+/* 朗讀：典故名→故事→解釋→例句；按一下開始、再按一下停止。長文切句排隊，避免瀏覽器唸到一半中斷 */
+const DG_TTS='speechSynthesis' in window&&typeof SpeechSynthesisUtterance!=='undefined';
+let DG_BTN=null;
+function dgVoice(){const vs=speechSynthesis.getVoices();return vs.find(v=>/zh[-_]TW/i.test(v.lang))||vs.find(v=>/zh[-_](HK|Hant)/i.test(v.lang))||vs.find(v=>/^zh/i.test(v.lang))||null;}
+function dgStop(){if(!DG_TTS)return;speechSynthesis.cancel();if(DG_BTN){DG_BTN.classList.remove('on');DG_BTN.textContent='🔊 朗讀';DG_BTN=null;}}
+function dgSay(it,btn){
+  const same=DG_BTN===btn;dgStop();if(same)return;
+  const t=dgPlain(it.title);
+  const text=[t+'。',dgPlain(it.story),it.def?'解釋：'+dgPlain(it.def):'',it.ex?'例句：'+dgPlain(it.ex):''].join('');
+  const parts=text.match(/[^。！？；]+[。！？；」』）]*/g)||[text];
+  const v=dgVoice();DG_BTN=btn;btn.classList.add('on');btn.textContent='⏹ 停止';
+  parts.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang='zh-TW';if(v)u.voice=v;u.rate=0.9;
+    if(i===parts.length-1)u.onend=()=>{if(DG_BTN===btn)dgStop();};
+    speechSynthesis.speak(u);});
+}
+if(DG_TTS){speechSynthesis.getVoices();addEventListener('pagehide',()=>speechSynthesis.cancel());}
 function renderDgList(el,ds){
   let vf='全部',lf='全部';
   el.innerHTML='<div id="dglf"></div><div id="dgarea"></div>';
@@ -504,8 +522,10 @@ function renderDgList(el,ds){
     const v=el.querySelector('#dglf .vsel'),l=el.querySelector('#dglf .lsel');
     if(v)v.onchange=()=>{vf=v.value;lf='全部';paint();};
     if(l)l.onchange=()=>{lf=l.value;paint();};
-    let s='';twoFilter(ds.lessons,vf,lf).forEach(L=>{s+='<div class="dg-unit">'+dgEsc(L.lesson)+'</div>'+L.items.map(dgCard).join('');});
+    dgStop();
+    const shown=[];let s='';twoFilter(ds.lessons,vf,lf).forEach(L=>{s+='<div class="dg-unit">'+dgEsc(L.lesson)+'</div>'+L.items.map(it=>{shown.push(it);return dgCard(it);}).join('');});
     el.querySelector('#dgarea').innerHTML=s||'<div class="result"><p>此範圍沒有典故</p></div>';
+    el.querySelectorAll('#dgarea .dg-say').forEach((b,i)=>b.onclick=()=>dgSay(shown[i],b));
   }
   paint();
 }
