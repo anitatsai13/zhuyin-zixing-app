@@ -38,6 +38,11 @@
   .seg.lrow button.on{background:var(--accent,#9a3b2e);color:#fff}
   .ifilt{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
   .ifilt select{flex:1;min-width:130px;font-size:14px;font-weight:700;padding:9px 11px;border-radius:10px;border:0;box-shadow:inset 0 0 0 1px var(--line);background:var(--paper-2);color:var(--ink);font-family:inherit;cursor:pointer}
+  .dg-search{display:flex;gap:8px;margin-bottom:8px}
+  .dg-search input{flex:1;min-width:0;font-size:15px;padding:9px 12px;border-radius:10px;border:0;box-shadow:inset 0 0 0 1px var(--line);background:var(--paper-2);color:var(--ink);font-family:inherit}
+  .dg-search input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .dg-search button{font-size:14px;font-weight:700;padding:0 14px;border-radius:10px;border:0;background:var(--line);color:var(--ink);font-family:inherit;cursor:pointer}
+  .dg-count{font-size:13px;color:var(--ink-soft);margin:0 2px 8px}
 
   .progress{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--ink-soft);margin-bottom:10px}
   .bar{height:6px;background:var(--line);border-radius:99px;overflow:hidden;flex:1;margin:0 12px}
@@ -553,17 +558,28 @@ function dgSay(it,btn){
     speechSynthesis.speak(u);});
 }
 if(DG_TTS){speechSynthesis.getVoices();addEventListener('pagehide',()=>speechSynthesis.cancel());}
+/* 搜尋比對：典故名、英文名、故事、解釋、例句、延伸／相似／相反語詞（去掉注音，英文不分大小寫） */
+function dgHay(it){if(!it._hay)it._hay=[it.title,it.title_en,it.story,it.note,it.def,it.def_note,it.ex,...(it.rel||[]).map(r=>r.w+' '+r.d)].map(dgPlain).join('\n').toLowerCase();return it._hay;}
 function renderDgList(el,ds){
-  let vf='全部',lf='全部';
-  el.innerHTML='<div id="dglf"></div><div id="dgarea"></div>';
+  let vf='全部',lf='全部',kw='';
+  el.innerHTML='<div class="dg-search"><input id="dgq" type="search" placeholder="🔍 搜尋典故、解釋或故事內容" autocomplete="off"><button id="dgqx" type="button" hidden>清除</button></div><div id="dglf"></div><div id="dgarea"></div>';
+  const qi=el.querySelector('#dgq'),qx=el.querySelector('#dgqx');
+  qi.oninput=()=>{kw=qi.value.trim();qx.hidden=!kw;draw();};
+  qx.onclick=()=>{qi.value='';kw='';qx.hidden=true;draw();qi.focus();};
   function paint(){
     el.querySelector('#dglf').innerHTML=twoFilterHTML(ds.lessons,vf,lf);
     const v=el.querySelector('#dglf .vsel'),l=el.querySelector('#dglf .lsel');
     if(v)v.onchange=()=>{vf=v.value;lf='全部';paint();};
     if(l)l.onchange=()=>{lf=l.value;paint();};
+    draw();
+  }
+  function draw(){
     dgStop();
-    const shown=[];let s='';twoFilter(ds.lessons,vf,lf).forEach(L=>{s+='<div class="dg-unit">'+dgEsc(L.lesson)+'</div>'+L.items.map(it=>{shown.push(it);return dgCard(it);}).join('');});
-    el.querySelector('#dgarea').innerHTML=s||'<div class="result"><p>此範圍沒有典故</p></div>';
+    const k=kw.toLowerCase(),shown=[];let s='';
+    twoFilter(ds.lessons,vf,lf).forEach(L=>{const its=k?L.items.filter(it=>dgHay(it).includes(k)):L.items;if(!its.length)return;
+      s+='<div class="dg-unit">'+dgEsc(L.lesson)+'</div>'+its.map(it=>{shown.push(it);return dgCard(it);}).join('');});
+    const scope=(vf==='全部'&&lf==='全部')?'':'（目前範圍：'+dgEsc(lf!=='全部'?lf:vf)+'）';
+    el.querySelector('#dgarea').innerHTML=(k?'<div class="dg-count">找到 '+shown.length+' 則'+scope+'</div>':'')+(s||'<div class="result"><p>'+(k?'找不到符合「'+dgEsc(kw)+'」的典故'+(scope?'，可以把冊別、課次改回「全部」再找':''):'此範圍沒有典故')+'</p></div>');
     el.querySelectorAll('#dgarea .dg-say').forEach((b,i)=>b.onclick=()=>dgSay(shown[i],b));
   }
   paint();
