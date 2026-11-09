@@ -38,6 +38,17 @@
   .seg.lrow button.on{background:var(--accent,#9a3b2e);color:#fff}
   .ifilt{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
   .ifilt select{flex:1;min-width:130px;font-size:14px;font-weight:700;padding:9px 11px;border-radius:10px;border:0;box-shadow:inset 0 0 0 1px var(--line);background:var(--paper-2);color:var(--ink);font-family:inherit;cursor:pointer}
+  .pk{margin-bottom:12px}
+  .pk-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{border:0;background:var(--paper-2);box-shadow:inset 0 0 0 1px var(--line);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:700;color:var(--ink-soft);cursor:pointer;font-family:inherit;max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere;transition:.15s}
+  .chip.on{background:var(--gold);color:#fff;box-shadow:none}
+  .chip.part{box-shadow:inset 0 0 0 2px var(--gold);color:var(--ink)}
+  .pk-vh{flex-basis:100%;display:flex;gap:6px;min-width:0}
+  .chip.qvol{flex:1;min-width:0;border-radius:10px;background:#f3e7cf;color:var(--ink);padding:8px 12px}
+  .chip.qvol.on{background:var(--gold);color:#fff}
+  .chip.qvol small{font-weight:600;opacity:.8;margin-left:4px}
+  .pk-tog{flex:0 0 38px;border:0;border-radius:10px;background:var(--paper-2);box-shadow:inset 0 0 0 1px var(--line);color:var(--ink-soft);font-size:14px;cursor:pointer;font-family:inherit}
+  .pk-go{display:block;width:100%;margin-top:10px}
   .dg-search{display:flex;gap:8px;margin-bottom:8px}
   .dg-search input{flex:1;min-width:0;font-size:15px;padding:9px 12px;border-radius:10px;border:0;box-shadow:inset 0 0 0 1px var(--line);background:var(--paper-2);color:var(--ink);font-family:inherit}
   .dg-search input:focus{outline:2px solid var(--accent);outline-offset:-1px}
@@ -414,6 +425,33 @@ function twoFilterHTML(lessons,vf,lf){
   return `<div class="ifilt">${vh}${lh}</div>`;
 }
 function twoFilter(lessons,vf,lf){let s=lessons;if(vf!=='全部')s=s.filter(L=>L.lesson.split(' ')[0]===vf);if(lf!=='全部')s=s.filter(L=>L.lesson===lf);return s;}
+/* 測驗範圍：冊→課（單元）複選 chip；沒選＝全部。o={unit,count(ls),n(ls),go(),preset:{vf,lf}} */
+function scopePicker(box,lessons,o){
+  const vols=[];lessons.forEach((L,i)=>{const v=L.lesson.split(' ')[0];let g=vols.find(x=>x.v===v);if(!g){g={v:v,ix:[]};vols.push(g);}g.ix.push(i);});
+  const sel=new Set(),open=new Set(),p=o.preset;
+  if(p&&p.lf&&p.lf!=='全部'){const i=lessons.findIndex(L=>L.lesson===p.lf);if(i>=0){sel.add(i);open.add(p.lf.split(' ')[0]);}}
+  else if(p&&p.vf&&p.vf!=='全部'){const g=vols.find(x=>x.v===p.vf);if(g){g.ix.forEach(i=>sel.add(i));open.add(g.v);}}
+  const one=vols.length===1;
+  const short=L=>L.lesson.split(' ').slice(1).join(' ')||L.lesson;
+  const of=ix=>ix.map(i=>lessons[i]);
+  const picked=()=>sel.size?lessons.filter((L,i)=>sel.has(i)):lessons;
+  function paint(){
+    let h='<div class="pk-chips"><button type="button" class="chip pk-all'+(sel.size?'':' on')+'">全部（'+o.count(lessons)+' 題）</button>';
+    vols.forEach((g,gi)=>{const n=g.ix.filter(i=>sel.has(i)).length,st=n===g.ix.length?' on':n?' part':'',op=one||open.has(g.v);
+      h+='<div class="pk-vh">'+(one?'':'<button type="button" class="pk-tog" data-g="'+gi+'" aria-expanded="'+op+'" title="展開／收合">'+(op?'▾':'▸')+'</button>')+
+        '<button type="button" class="chip qvol'+st+'" data-g="'+gi+'">'+dgEsc(g.v)+'<small>（'+(n?n+'/':'')+g.ix.length+' '+o.unit+'・'+o.count(of(g.ix))+' 題）</small></button></div>';
+      if(op)g.ix.forEach(i=>{h+='<button type="button" class="chip'+(sel.has(i)?' on':'')+'" data-i="'+i+'">'+dgEsc(short(lessons[i]))+'</button>';});});
+    h+='</div><button type="button" class="btn btn-main pk-go">📝 開始測驗（'+o.n(picked())+' 題）</button>';
+    box.innerHTML=h;
+    box.querySelector('.pk-all').onclick=()=>{sel.clear();paint();};
+    box.querySelectorAll('.pk-tog').forEach(b=>b.onclick=()=>{const v=vols[+b.dataset.g].v;open.has(v)?open.delete(v):open.add(v);paint();});
+    box.querySelectorAll('.qvol').forEach(b=>b.onclick=()=>{const g=vols[+b.dataset.g],all=g.ix.every(i=>sel.has(i));g.ix.forEach(i=>all?sel.delete(i):sel.add(i));if(!all)open.add(g.v);paint();});
+    box.querySelectorAll('.chip[data-i]').forEach(b=>b.onclick=()=>{const i=+b.dataset.i;sel.has(i)?sel.delete(i):sel.add(i);paint();});
+    box.querySelector('.pk-go').onclick=()=>{open.clear();paint();o.go();};
+  }
+  paint();
+  return {picked:picked,paint:paint};
+}
 /* 成語擂臺：主題瀏覽（冊別→課次兩層） */
 function renderThemes(el,ds){
   let vf='全部',lf='全部';
@@ -433,17 +471,15 @@ function renderThemes(el,ds){
 }
 /* 成語擂臺：看釋義選成語 */
 function renderThemeQuiz(el,ds){
-  let vf='全部',lf='全部',roundLen=10,order=[],pos=0,done=0,right=0,total=0,pool=[],allW=[],round;
-  if(PG_PRESET&&PG_PRESET.lf){vf=PG_PRESET.vf;lf=PG_PRESET.lf;}PG_PRESET=null;
-  el.innerHTML=`<div id="tqlf"></div>
+  let roundLen=10,order=[],pos=0,done=0,right=0,total=0,pool=[],allW=[],round,pk;
+  const preset=PG_PRESET&&PG_PRESET.lf?PG_PRESET:null;PG_PRESET=null;
+  el.innerHTML=`<div id="tqlf" class="pk"></div>
     <div class="seg" id="tqlen"><button data-len="10" class="on">10 題</button><button data-len="20">20 題</button><button data-len="0">全部</button></div>
     <div class="score"><div><b id="tqDone">0</b><span>進度</span></div><div><b id="tqRight">0</b><span>答對</span></div><div><b id="tqRate">0%</b><span>正確率</span></div></div><div id="tqArea"></div>`;
   const q=s=>el.querySelector(s);
-  function paintFilter(){q('#tqlf').innerHTML=twoFilterHTML(ds.lessons,vf,lf);
-    const v=q('#tqlf .vsel'),l=q('#tqlf .lsel');
-    if(v)v.onchange=()=>{vf=v.value;lf='全部';paintFilter();start();};
-    if(l)l.onchange=()=>{lf=l.value;paintFilter();start();};}
-  function buildPool(){const sel=twoFilter(ds.lessons,vf,lf);const seen={};pool=[];sel.forEach(L=>L.themes.forEach(t=>t.items.forEach(it=>{if(it.def&&!seen[it.w]){seen[it.w]=1;pool.push(it);}})));allW=pool.map(x=>x.w);}
+  function cnt(ls){const s=new Set();ls.forEach(L=>L.themes.forEach(t=>t.items.forEach(it=>{if(it.def)s.add(it.w);})));return s.size;}
+  pk=scopePicker(q('#tqlf'),ds.lessons,{unit:'課',count:cnt,n:ls=>{const c=cnt(ls);return roundLen>0?Math.min(roundLen,c):c;},go:()=>start(),preset:preset});
+  function buildPool(){const sel=pk.picked();const seen={};pool=[];sel.forEach(L=>L.themes.forEach(t=>t.items.forEach(it=>{if(it.def&&!seen[it.w]){seen[it.w]=1;pool.push(it);}})));allW=pool.map(x=>x.w);}
   function start(){round=newRound();buildPool();order=shuffle(pool.map((_,i)=>i));if(roundLen>0)order=order.slice(0,roundLen);total=order.length;pos=0;done=0;right=0;upd();next();}
   function upd(){q('#tqDone').textContent=`${done}/${total}`;q('#tqRight').textContent=right;q('#tqRate').textContent=(done?Math.round(right/done*100):0)+'%';}
   function next(){
@@ -456,8 +492,8 @@ function renderThemeQuiz(el,ds){
     q('#tqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===it.w;q('#tqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===it.w)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();pgLogIt(ds,it,ok);if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:'成語擂臺測驗',head:it.w,yin:'',prompt:it.def,correct:it.w,you:btn.dataset.v});const fb=q('#tqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+it.w)+`<div class="fb-def">${it.w}：${it.def}</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="tqnx">下一題 →</button>`;q('#tqnx').onclick=()=>{pos++;next();};});
   }
   function result(){const pct=total?Math.round(right/total*100):0;const msg=pct>=90?'太厲害了！🏆':pct>=70?'不錯，再加油！💪':'多練習幾次會更好！📚';q('#tqArea').innerHTML=`<div class="result"><div class="big">${pct}%</div><p>答對 ${right} / ${total} 題<br>${msg}</p><button class="btn btn-main" style="max-width:240px;margin:0 auto" id="tqagain">再測一次 🔄</button></div>`;q('#tqagain').onclick=start;}
-  el.querySelectorAll('#tqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#tqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);start();});
-  paintFilter();start();
+  el.querySelectorAll('#tqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#tqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);pk.paint();start();});
+  start();
 }
 
 /* 字音字形題庫：列表 */
@@ -488,17 +524,15 @@ function fillFormOpts(it,pool){const cand=new Set();if(LLALL[it.char])shuffle(LL
 function fillSoundOpts(it,pool){const yins=[...new Set(pool.filter(x=>x.yin&&x.yin!==it.yin).map(x=>x.yin))];const scored=yins.map(y=>({y:y,s:simYin(it.yin,y)})).sort((a,b)=>b.s-a.s);const cand=shuffle(scored.slice(0,Math.max(6,3)).map(o=>o.y)).slice(0,3);if(cand.length<3)shuffle(yins).forEach(y=>{if(cand.length<3&&cand.indexOf(y)<0)cand.push(y);});return shuffle([it.yin,...cand]);}
 /* 字音字形題庫：測驗（自動判斷填國字／填注音） */
 function renderFillQuiz(el,ds){
-  let vf='全部',lf='全部',roundLen=10,order=[],pos=0,done=0,right=0,total=0,pool=[],round;
-  if(PG_PRESET&&PG_PRESET.lf){vf=PG_PRESET.vf;lf=PG_PRESET.lf;}PG_PRESET=null;
-  el.innerHTML=`<div id="fqlf"></div>
+  let roundLen=10,order=[],pos=0,done=0,right=0,total=0,pool=[],round,pk;
+  const preset=PG_PRESET&&PG_PRESET.lf?PG_PRESET:null;PG_PRESET=null;
+  el.innerHTML=`<div id="fqlf" class="pk"></div>
     <div class="seg" id="fqlen"><button data-len="10" class="on">10 題</button><button data-len="20">20 題</button><button data-len="0">全部</button></div>
     <div class="score"><div><b id="fqDone">0</b><span>進度</span></div><div><b id="fqRight">0</b><span>答對</span></div><div><b id="fqRate">0%</b><span>正確率</span></div></div><div id="fqArea"></div>`;
   const q=s=>el.querySelector(s);
-  function paintFilter(){q('#fqlf').innerHTML=twoFilterHTML(ds.lessons,vf,lf);
-    const v=q('#fqlf .vsel'),l=q('#fqlf .lsel');
-    if(v)v.onchange=()=>{vf=v.value;lf='全部';paintFilter();start();};
-    if(l)l.onchange=()=>{lf=l.value;paintFilter();start();};}
-  function buildPool(){const sel=twoFilter(ds.lessons,vf,lf);pool=[];sel.forEach(L=>L.items.forEach(it=>pool.push(it)));}
+  function cnt(ls){return ls.reduce((a,L)=>a+L.items.length,0);}
+  pk=scopePicker(q('#fqlf'),ds.lessons,{unit:'課',count:cnt,n:ls=>{const c=cnt(ls);return roundLen>0?Math.min(roundLen,c):c;},go:()=>start(),preset:preset});
+  function buildPool(){const sel=pk.picked();pool=[];sel.forEach(L=>L.items.forEach(it=>pool.push(it)));}
   function start(){round=newRound();buildPool();order=shuffle(pool.map((_,i)=>i));if(roundLen>0)order=order.slice(0,roundLen);total=order.length;pos=0;done=0;right=0;upd();next();}
   function upd(){q('#fqDone').textContent=`${done}/${total}`;q('#fqRight').textContent=right;q('#fqRate').textContent=(done?Math.round(right/done*100):0)+'%';}
   function formOpts(it){return fillFormOpts(it,pool);}
@@ -519,8 +553,8 @@ function renderFillQuiz(el,ds){
     q('#fqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===correct;q('#fqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===correct)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();pgLogIt(ds,it,ok);if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:'字音字形題庫·'+(it.ask==='form'?'填國字':'填注音'),head:it.word,yin:it.yin,prompt:it.ask==='form'?'選正確國字':('「'+it.char+'」的注音'),correct:correct,you:btn.dataset.v});const fb=q('#fqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+correct)+`<div class="fb-def">${it.word}（${it.yin}）</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="fqnx">下一題 →</button>`;q('#fqnx').onclick=()=>{pos++;next();};});
   }
   function result(){const pct=total?Math.round(right/total*100):0;const msg=pct>=90?'太厲害了！🏆':pct>=70?'不錯，再加油！💪':'多練習幾次會更好！📚';q('#fqArea').innerHTML=`<div class="result"><div class="big">${pct}%</div><p>答對 ${right} / ${total} 題<br>${msg}</p><button class="btn btn-main" style="max-width:240px;margin:0 auto" id="fqagain">再測一次 🔄</button></div>`;q('#fqagain').onclick=start;}
-  el.querySelectorAll('#fqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#fqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);start();});
-  paintFilter();start();
+  el.querySelectorAll('#fqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#fqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);pk.paint();start();});
+  start();
 }
 
 /* ===== 讀典故知文史 ===== */
@@ -586,21 +620,20 @@ function renderDgList(el,ds){
 }
 /* 測驗：看解釋選典故／例句填空，誘答用「釋義相近」 */
 function renderDgQuiz(el,ds){
-  let vf='全部',lf='全部',roundLen=10,list=[],pos=0,done=0,right=0,total=0,pool=[],all=[],round;
-  if(PG_PRESET&&PG_PRESET.lf){vf=PG_PRESET.vf;lf=PG_PRESET.lf;}PG_PRESET=null;
+  let roundLen=10,list=[],pos=0,done=0,right=0,total=0,pool=[],all=[],round,pk;
+  const preset=PG_PRESET&&PG_PRESET.lf?PG_PRESET:null;PG_PRESET=null;
   function distr(x){return idiomDist(x,pool.length>=8?pool:all,3);}
-  el.innerHTML=`<div id="dqlf"></div>
+  el.innerHTML=`<div id="dqlf" class="pk"></div>
     <div class="seg" id="dqlen"><button data-len="10" class="on">10 題</button><button data-len="20">20 題</button><button data-len="0">全部</button></div>
     <div class="score"><div><b id="dqDone">0</b><span>進度</span></div><div><b id="dqRight">0</b><span>答對</span></div><div><b id="dqRate">0%</b><span>正確率</span></div></div><div id="dqArea"></div>`;
   const q=s=>el.querySelector(s);
-  function paintFilter(){q('#dqlf').innerHTML=twoFilterHTML(ds.lessons,vf,lf);
-    const v=q('#dqlf .vsel'),l=q('#dqlf .lsel');
-    if(v)v.onchange=()=>{vf=v.value;lf='全部';paintFilter();start();};
-    if(l)l.onchange=()=>{lf=l.value;paintFilter();start();};}
+  function hasEx(it){return !!(it.ex&&dgPlain(it.ex).indexOf(dgPlain(it.title))>=0);}
+  function cnt(ls){let n=0;ls.forEach(L=>L.items.forEach(it=>{if(dgPlain(it.def))n++;if(hasEx(it))n++;}));return n;}
+  pk=scopePicker(q('#dqlf'),ds.lessons,{unit:'單元',count:cnt,n:ls=>{const c=cnt(ls);return roundLen>0?Math.min(roundLen,c):c;},go:()=>start(),preset:preset});
   function start(){
     round=newRound();
     all=[];ds.lessons.forEach(L=>L.items.forEach(it=>all.push({w:dgPlain(it.title),def:dgPlain(it.def),it})));
-    pool=[];twoFilter(ds.lessons,vf,lf).forEach(L=>L.items.forEach(it=>pool.push(all.find(x=>x.it===it))));
+    pool=[];pk.picked().forEach(L=>L.items.forEach(it=>pool.push(all.find(x=>x.it===it))));
     const qs=[];pool.forEach(x=>{if(x.def)qs.push({k:'def',x});if(x.it.ex&&dgPlain(x.it.ex).indexOf(x.w)>=0)qs.push({k:'ex',x});});
     list=shuffle(qs);if(roundLen>0)list=list.slice(0,roundLen);
     total=list.length;pos=0;done=0;right=0;upd();next();
@@ -625,8 +658,8 @@ function renderDgQuiz(el,ds){
       q('#dqnx').onclick=()=>{pos++;next();};});
   }
   function result(){const pct=total?Math.round(right/total*100):0;const msg=pct>=90?'太厲害了！🏆':pct>=70?'不錯，再加油！💪':'多練習幾次會更好！📚';q('#dqArea').innerHTML='<div class="result"><div class="big">'+pct+'%</div><p>答對 '+right+' / '+total+' 題<br>'+msg+'</p><button class="btn btn-main" style="max-width:240px;margin:0 auto" id="dqagain">再測一次 🔄</button></div>';q('#dqagain').onclick=start;}
-  el.querySelectorAll('#dqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#dqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);start();});
-  paintFilter();start();
+  el.querySelectorAll('#dqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#dqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);pk.paint();start();});
+  start();
 }
 /* 階段評量：照書上題序作答 */
 const DG_K='ABCDEFGHIJ';
