@@ -289,6 +289,30 @@ async function cloudInsert(rec){try{await sbFetch(SB_URL+'/rest/v1/mistakes_zixi
 async function cloudClear(){try{await sbFetch(SB_URL+'/rest/v1/mistakes_zixing?id=gt.0',{method:'DELETE'});}catch(e){}}
 async function syncCloud(){if(!isLoggedIn())return;try{MEM=await cloudLoad();}catch(e){MEM=MEM||[];}CLOUD_READY=true;progSyncDown();}
 function logWrong(rec){const a=loadMist();a.push(rec);if(isLoggedIn())cloudInsert(rec);else persistLocal(a);}
+/* 錯題答對計數：同一題（同資料集＋同題型＋同題目＋同正解）連續答對 W_NEED 次就移出錯題本（本機與雲端都刪），中途答錯歸零重算。
+   計數存在這台裝置（zixing_whits_v1）。 */
+const W_NEED=3, WHKEY='zixing_whits_v1';
+function wKey(r){return [r.ds,r.type,r.head,r.correct].join('|');}
+function wHits(){try{return JSON.parse(localStorage.getItem(WHKEY)||'{}')||{};}catch(e){return {};}}
+function wHitsSave(o){try{localStorage.setItem(WHKEY,JSON.stringify(o));}catch(e){}}
+async function cloudDeleteRec(r){try{const f=['ds','type','head','correct'].map(k=>'rec->>'+k+'=eq.'+encodeURIComponent(String(r[k]==null?'':r[k]))).join('&');
+  await sbFetch(SB_URL+'/rest/v1/mistakes_zixing?'+f,{method:'DELETE'});}catch(e){}}
+function wAns(ok,rec){
+  const k=wKey(rec),hs=wHits();
+  if(!ok){if(hs[k]){delete hs[k];wHitsSave(hs);}logWrong(rec);return;}
+  const a=loadMist(),hit=a.filter(r=>wKey(r)===k);if(!hit.length)return;
+  const n=(hs[k]||0)+1;
+  if(n>=W_NEED){
+    const rest=a.filter(r=>wKey(r)!==k);a.length=0;rest.forEach(r=>a.push(r));
+    if(isLoggedIn())cloudDeleteRec(hit[0]);else persistLocal(a);
+    delete hs[k];wHitsSave(hs);wToast('🎉 「'+rec.head+'」連續答對 '+W_NEED+' 次，移出錯題本！');
+  }else{hs[k]=n;wHitsSave(hs);wToast('👍 錯題「'+rec.head+'」答對 '+n+'／'+W_NEED+'（連續答對 '+W_NEED+' 次就移出錯題本）');}
+}
+function wToast(s){let d=document.getElementById('wToast');
+  if(!d){d=document.createElement('div');d.id='wToast';
+    d.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:rgba(34,34,34,.92);color:#fff;padding:10px 16px;border-radius:12px;font-weight:800;z-index:9999;max-width:90vw;text-align:center;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.25);transition:opacity .3s';
+    document.body.appendChild(d);}
+  d.textContent=s;d.style.opacity='1';clearTimeout(d._t);d._t=setTimeout(()=>{d.style.opacity='0';},2200);}
 
 const TABS={ zixing:[['learn','📖 學習'],['sim','🔍 近似字'],['idiomq','🏛 成語'],['wordq','📝 字詞']],
              fill:[['flist','📖 列表'],['fquiz','✍️ 測驗']],
@@ -381,7 +405,7 @@ function renderSim(el,ds){
     let s=`<div class="q-prompt"><div class="q-type form">近似字 · 選正確的字</div><div class="q-big" style="font-size:32px">${blanked}</div><div class="q-small">${it.yin}</div></div><div class="options">`;
     opts.forEach((o,i)=>s+=`<button class="opt" data-v="${o}"><span class="k">${'ABCD'[i]}</span><span style="font-family:'DFKai-SB','Kaiti TC',serif;font-size:24px">${o}</span></button>`);
     s+=`</div><div class="feedback" id="sqfb"></div>`;q('#sqArea').innerHTML=s;
-    q('#sqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===it.ans;q('#sqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===it.ans)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:'近似字測驗',head:it.word,yin:it.yin,prompt:'選正確的字',correct:it.ans,you:btn.dataset.v});const fb=q('#sqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確：'+it.ans)+`<div class="fb-def">${it.word}（${it.yin}）</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="sqnx">下一題 →</button>`;q('#sqnx').onclick=()=>{pos++;next();};});
+    q('#sqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===it.ans;q('#sqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===it.ans)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();wAns(ok,{round,t:new Date().toISOString(),ds:ds.name,type:'近似字測驗',head:it.word,yin:it.yin,prompt:'選正確的字',correct:it.ans,you:btn.dataset.v});const fb=q('#sqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確：'+it.ans)+`<div class="fb-def">${it.word}（${it.yin}）</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="sqnx">下一題 →</button>`;q('#sqnx').onclick=()=>{pos++;next();};});
   }
   function result(){const pct=total?Math.round(right/total*100):0;const msg=pct>=90?'太厲害了！🏆':pct>=70?'不錯，再加油！💪':'多練習幾次會更好！📚';q('#sqArea').innerHTML=`<div class="result"><div class="big">${pct}%</div><p>答對 ${right} / ${total} 題<br>${msg}</p><button class="btn btn-main" style="max-width:240px;margin:0 auto" id="sqagain">再測一次 🔄</button></div>`;q('#sqagain').onclick=start;}
   el.querySelectorAll('#sqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#sqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);start();});
@@ -407,7 +431,7 @@ function renderZiQuiz(el,ds,kind){
     if(t==='sound'){correct=d.zhuyin;const opts=shuffle([d.zhuyin,...soundDist(d)]);s=`<div class="q-prompt"><div class="q-type sound">字音 · 選注音</div><div class="q-big" style="font-size:${Math.min(fit(d.word),44)}px">${d.word}</div><div class="q-small">${d.pinyin}</div></div><div class="options">`;opts.forEach((o,i)=>s+=`<button class="opt" data-v="${o}"><span class="k">${'ABCD'[i]}</span><span>${o}</span></button>`);}
     else{correct=d.word;const opts=shuffle([d.word,...formDist(d)]);s=`<div class="q-prompt"><div class="q-type form">字形 · 選正確的字</div><div class="q-big" style="font-size:26px;color:var(--accent)">${d.zhuyin}</div><div class="q-small">${d.senses[0].m}</div></div><div class="options">`;opts.forEach((o,i)=>s+=`<button class="opt" data-v="${o}"><span class="k">${'ABCD'[i]}</span><span style="font-family:'DFKai-SB','Kaiti TC',serif;font-size:20px">${o}</span></button>`);}
     s+=`</div><div class="feedback" id="qfb"></div>`;q('#qArea').innerHTML=s;
-    q('#qArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===correct;q('#qArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===correct)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:(kind==='成語'?'成語測驗':'字詞測驗')+'·'+(t==='sound'?'字音':'字形'),head:d.word,yin:d.zhuyin,prompt:(t==='sound'?'選正確注音':d.senses[0].m),correct:correct,you:btn.dataset.v});const fb=q('#qfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+correct)+`<div class="fb-def">${d.word}（${d.zhuyin}）${d.senses[0].m}</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="qnx">下一題 →</button>`;q('#qnx').onclick=()=>{pos++;next();};});
+    q('#qArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===correct;q('#qArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===correct)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();wAns(ok,{round,t:new Date().toISOString(),ds:ds.name,type:(kind==='成語'?'成語測驗':'字詞測驗')+'·'+(t==='sound'?'字音':'字形'),head:d.word,yin:d.zhuyin,prompt:(t==='sound'?'選正確注音':d.senses[0].m),correct:correct,you:btn.dataset.v});const fb=q('#qfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+correct)+`<div class="fb-def">${d.word}（${d.zhuyin}）${d.senses[0].m}</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="qnx">下一題 →</button>`;q('#qnx').onclick=()=>{pos++;next();};});
   }
   function result(){const pct=total?Math.round(right/total*100):0;const msg=pct>=90?'太厲害了！🏆':pct>=70?'不錯，再加油！💪':'多練習幾次會更好！📚';q('#qArea').innerHTML=`<div class="result"><div class="big">${pct}%</div><p>答對 ${right} / ${total} 題<br>${msg}</p><button class="btn btn-main" style="max-width:240px;margin:0 auto" id="qagain">再測一次 🔄</button></div>`;q('#qagain').onclick=start;}
   el.querySelectorAll('#qlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#qlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);start();});
@@ -489,7 +513,7 @@ function renderThemeQuiz(el,ds){
     let s=`<div class="q-prompt"><div class="q-type mean">成語 · 看釋義選成語</div><div class="q-small" style="font-size:16px;color:var(--ink)">${it.def}</div></div><div class="options">`;
     opts.forEach((o,i)=>s+=`<button class="opt" data-v="${o}"><span class="k">${'ABCD'[i]}</span><span style="font-family:'DFKai-SB','Kaiti TC',serif;font-size:20px">${o}</span></button>`);
     s+=`</div><div class="feedback" id="tqfb"></div>`;q('#tqArea').innerHTML=s;
-    q('#tqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===it.w;q('#tqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===it.w)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();pgLogIt(ds,it,ok);if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:'成語擂臺測驗',head:it.w,yin:'',prompt:it.def,correct:it.w,you:btn.dataset.v});const fb=q('#tqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+it.w)+`<div class="fb-def">${it.w}：${it.def}</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="tqnx">下一題 →</button>`;q('#tqnx').onclick=()=>{pos++;next();};});
+    q('#tqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===it.w;q('#tqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===it.w)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();pgLogIt(ds,it,ok);wAns(ok,{round,t:new Date().toISOString(),ds:ds.name,type:'成語擂臺測驗',head:it.w,yin:'',prompt:it.def,correct:it.w,you:btn.dataset.v});const fb=q('#tqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+it.w)+`<div class="fb-def">${it.w}：${it.def}</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="tqnx">下一題 →</button>`;q('#tqnx').onclick=()=>{pos++;next();};});
   }
   function result(){const pct=total?Math.round(right/total*100):0;const msg=pct>=90?'太厲害了！🏆':pct>=70?'不錯，再加油！💪':'多練習幾次會更好！📚';q('#tqArea').innerHTML=`<div class="result"><div class="big">${pct}%</div><p>答對 ${right} / ${total} 題<br>${msg}</p><button class="btn btn-main" style="max-width:240px;margin:0 auto" id="tqagain">再測一次 🔄</button></div>`;q('#tqagain').onclick=start;}
   el.querySelectorAll('#tqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#tqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);pk.paint();start();});
@@ -550,7 +574,7 @@ function renderFillQuiz(el,ds){
       opts.forEach((o,i)=>s+=`<button class="opt" data-v="${o}"><span class="k">${'ABCD'[i]}</span><span>${o}</span></button>`);
     }
     s+=`</div><div class="feedback" id="fqfb"></div>`;q('#fqArea').innerHTML=s;
-    q('#fqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===correct;q('#fqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===correct)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();pgLogIt(ds,it,ok);if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:'字音字形題庫·'+(it.ask==='form'?'填國字':'填注音'),head:it.word,yin:it.yin,prompt:it.ask==='form'?'選正確國字':('「'+it.char+'」的注音'),correct:correct,you:btn.dataset.v});const fb=q('#fqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+correct)+`<div class="fb-def">${it.word}（${it.yin}）</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="fqnx">下一題 →</button>`;q('#fqnx').onclick=()=>{pos++;next();};});
+    q('#fqArea').querySelectorAll('.opt').forEach(btn=>btn.onclick=()=>{const ok=btn.dataset.v===correct;q('#fqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===correct)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});done++;if(ok)right++;upd();pgLogIt(ds,it,ok);wAns(ok,{round,t:new Date().toISOString(),ds:ds.name,type:'字音字形題庫·'+(it.ask==='form'?'填國字':'填注音'),head:it.word,yin:it.yin,prompt:it.ask==='form'?'選正確國字':('「'+it.char+'」的注音'),correct:correct,you:btn.dataset.v});const fb=q('#fqfb');fb.className='feedback '+(ok?'ok':'no');fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+correct)+`<div class="fb-def">${it.word}（${it.yin}）</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="fqnx">下一題 →</button>`;q('#fqnx').onclick=()=>{pos++;next();};});
   }
   function result(){const pct=total?Math.round(right/total*100):0;const msg=pct>=90?'太厲害了！🏆':pct>=70?'不錯，再加油！💪':'多練習幾次會更好！📚';q('#fqArea').innerHTML=`<div class="result"><div class="big">${pct}%</div><p>答對 ${right} / ${total} 題<br>${msg}</p><button class="btn btn-main" style="max-width:240px;margin:0 auto" id="fqagain">再測一次 🔄</button></div>`;q('#fqagain').onclick=start;}
   el.querySelectorAll('#fqlen button').forEach(b=>b.onclick=()=>{el.querySelectorAll('#fqlen button').forEach(x=>x.classList.remove('on'));b.classList.add('on');roundLen=parseInt(b.dataset.len);pk.paint();start();});
@@ -652,7 +676,7 @@ function renderDgQuiz(el,ds){
       const ok=btn.dataset.v===x.w;
       q('#dqArea').querySelectorAll('.opt').forEach(b=>{b.disabled=true;if(b.dataset.v===x.w)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});
       done++;if(ok)right++;upd();pgLogIt(ds,x.it,ok);
-      if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:Q.k==='def'?'看解釋選典故':'例句填空',head:x.w,yin:'',prompt:Q.k==='def'?dgPlain(x.it.def):dgPlain(x.it.ex),correct:x.w,you:btn.dataset.v});
+      wAns(ok,{round,t:new Date().toISOString(),ds:ds.name,type:Q.k==='def'?'看解釋選典故':'例句填空',head:x.w,yin:'',prompt:Q.k==='def'?dgPlain(x.it.def):dgPlain(x.it.ex),correct:x.w,you:btn.dataset.v});
       const fb=q('#dqfb');fb.className='feedback '+(ok?'ok':'no');
       fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+dgEsc(x.w))+'<div class="fb-def">'+dgEsc(x.w)+'：'+dgTxt(x.it.def)+'</div><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="dqnx">下一題 →</button>';
       q('#dqnx').onclick=()=>{pos++;next();};});
@@ -685,7 +709,7 @@ function renderDgEval(el,ds){
       const k=+btn.dataset.i,ok=k===ans;
       q('#deArea').querySelectorAll('.opt').forEach((b,i)=>{b.disabled=true;if(i===ans)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});
       done++;if(ok)right++;else wrongs.push(it);upd();progLog('dgeval',E().title,String(it.n),ok);
-      if(!ok)logWrong({round,t:new Date().toISOString(),ds:ds.name,type:E().title,head:'第 '+it.n+' 題',yin:'',prompt:dgPlain(it.q).replace(/⟦[^⟧]+⟧/g,'（附圖）'),correct:'('+it.ans+') '+dgPlain(it.opts[ans]),you:'('+DG_K[k]+') '+dgPlain(it.opts[k])});
+      wAns(ok,{round,t:new Date().toISOString(),ds:ds.name,type:E().title,head:'第 '+it.n+' 題',yin:'',prompt:dgPlain(it.q).replace(/⟦[^⟧]+⟧/g,'（附圖）'),correct:'('+it.ans+') '+dgPlain(it.opts[ans]),you:'('+DG_K[k]+') '+dgPlain(it.opts[k])});
       const fb=q('#defb');fb.className='feedback '+(ok?'ok':'no');
       fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：('+it.ans+') '+dgTxt(it.opts[ans]))+'<br><button class="btn btn-main" style="margin-top:12px;max-width:220px" id="denx">下一題 →</button>';
       q('#denx').onclick=()=>{pos++;next();};});
@@ -720,14 +744,16 @@ function renderWrongBody(body,root){
   groups.reverse();
   let h=`<div class="wbar"><span>共 ${all.length} 題錯誤 · ${groups.length} 次測驗</span><div style="display:flex;gap:6px;flex:0 0 auto"><button class="btn btn-ghost" id="wexport" style="flex:0 0 auto;padding:8px 10px;font-size:13px">⬇ 匯出</button><button class="btn btn-ghost" id="wimport" style="flex:0 0 auto;padding:8px 10px;font-size:13px">⬆ 匯入</button><button class="btn btn-ghost" id="wclear" style="flex:0 0 auto;padding:8px 10px;font-size:13px">🗑 清空</button></div></div><input type="file" id="wfile" accept="application/json,.json" style="display:none">`;
   const RT=wqList(all);
+  h+=`<div class="wnote" style="color:var(--ink-soft)">同一題連續答對 ${W_NEED} 次就自動移出錯題本（中途答錯會重新計算）</div>`;
+  const WH=wHits();
   if(RT.list.length)h+=`<button class="btn btn-main" id="wretest" style="width:100%;margin-bottom:${RT.skipped?6:12}px">🔁 重測錯題（${RT.list.length} 題・依原題型）</button>`;
   if(RT.skipped)h+=`<div class="wnote" style="color:var(--ink-soft)">另有 ${RT.skipped} 筆的題目已不在目前題庫（或為舊題型），重測時略過</div>`;
   if(!isLoggedIn()&&!CANPERSIST)h+=`<div class="wnote">⚠ 此瀏覽器未開放本機儲存，錯題僅保留至本次關閉前</div>`;
   if(!groups.length){h+=`<div class="result"><p>目前沒有錯題，繼續加油！🎉<br><span style="font-size:13px">去做測驗，答錯的題目會自動記到這裡${isLoggedIn()?'（雲端）':''}。</span></p></div>`;}
-  else{groups.forEach(g=>{h+=`<div class="theme"><h3><span class="lesson-tag">${fmtTime(g.t)}</span>${g.ds} · ${g.type} · 答錯 ${g.items.length} 題</h3>`;g.items.forEach(it=>{h+=`<div class="wrong-item"><div class="wi-head">${it.head}${it.yin?`<span class="wi-yin">${it.yin}</span>`:''}</div>${it.prompt?`<div class="wi-prompt">${it.prompt}</div>`:''}<div class="wi-ans"><span class="ok">正解：${it.correct}</span><span class="no">你選：${it.you}</span></div></div>`;});h+=`</div>`;});}
+  else{groups.forEach(g=>{h+=`<div class="theme"><h3><span class="lesson-tag">${fmtTime(g.t)}</span>${g.ds} · ${g.type} · 答錯 ${g.items.length} 題</h3>`;g.items.forEach(it=>{h+=`<div class="wrong-item"><div class="wi-head">${it.head}${it.yin?`<span class="wi-yin">${it.yin}</span>`:''}${WH[wKey(it)]?`<span style="color:var(--green);font-size:13px;font-weight:800;margin-left:8px">連續答對 ${WH[wKey(it)]}／${W_NEED}</span>`:''}</div>${it.prompt?`<div class="wi-prompt">${it.prompt}</div>`:''}<div class="wi-ans"><span class="ok">正解：${it.correct}</span><span class="no">你選：${it.you}</span></div></div>`;});h+=`</div>`;});}
   body.innerHTML=h;
   const rtb=body.querySelector('#wretest');if(rtb)rtb.onclick=()=>{wrongRetest(body,root,RT.list);window.scrollTo(0,0);};
-  body.querySelector('#wclear').onclick=async()=>{if(confirm('確定要清空所有錯題紀錄嗎？此動作無法復原。')){if(isLoggedIn()){await cloudClear();MEM=[];}else{persistLocal([]);MEM=[];}renderWrong(root);}};
+  body.querySelector('#wclear').onclick=async()=>{if(confirm('確定要清空所有錯題紀錄嗎？此動作無法復原。')){if(isLoggedIn()){await cloudClear();MEM=[];}else{persistLocal([]);MEM=[];}wHitsSave({});renderWrong(root);}};
   body.querySelector('#wexport').onclick=()=>{const data=loadMist();if(!data.length){alert('目前沒有錯題可匯出');return;}const blob=new Blob([JSON.stringify(data,null,1)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');const n=new Date(),p=x=>(''+x).padStart(2,'0');a.href=url;a.download=`錯題本_${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}_${p(n.getHours())}${p(n.getMinutes())}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   const fileEl=body.querySelector('#wfile');
   body.querySelector('#wimport').onclick=()=>fileEl.click();
@@ -815,7 +841,7 @@ function wrongRetest(body,root,list){
       const k=+btn.dataset.i,ok=B.opts[k].v===B.correct;
       q('#wqArea').querySelectorAll('.opt').forEach((b,i)=>{b.disabled=true;if(B.opts[i].v===B.correct)b.classList.add('correct');if(b===btn&&!ok)b.classList.add('wrong');});
       done++;if(ok)right++;else wrongs.push(Q);upd();B.plog(ok);
-      if(!ok)logWrong(Object.assign({round,t:new Date().toISOString(),ds:Q.ds.name},B.rec(k)));
+      wAns(ok,Object.assign({round,t:new Date().toISOString(),ds:Q.ds.name},B.rec(k)));
       const fb=q('#wqfb');fb.className='feedback '+(ok?'ok':'no');
       fb.innerHTML=(ok?'✔ 答對了！':'✘ 正確答案：'+B.cshow)+B.fb+'<button class="btn btn-main" style="margin-top:12px;max-width:220px" id="wqnx">下一題 →</button>';
       q('#wqnx').onclick=()=>{pos++;next();};});
